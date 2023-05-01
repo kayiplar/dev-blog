@@ -6,7 +6,7 @@ import { SpotifyNowPlaying } from './SpotifyNowPlaying'
 export function ProfileCard() {
   let ref = useRef(null)
   let [style, setStyle] = useState<React.CSSProperties>({})
-
+  /*
   let onMouseMove = useCallback((e: MouseEvent) => {
     if (!ref.current || window.innerWidth < 1280) return
 
@@ -43,7 +43,7 @@ export function ProfileCard() {
       current.removeEventListener('mouseleave', onMouseLeave)
     }
   }, [onMouseLeave, onMouseMove])
-
+*/
   return (
     <div
       className="z-10 mb-8 scale-100 transition-all duration-200 ease-out hover:z-50 xl:mb-0 xl:hover:scale-[1.15]"
@@ -54,19 +54,6 @@ export function ProfileCard() {
         style={style}
         className="flex flex-col overflow-hidden bg-white shadow-cyan-100/50 transition-all duration-200 ease-out dark:bg-dark dark:shadow-cyan-700/50 xl:rounded-lg xl:shadow-lg"
       >
-        <Image
-          src={'/static/images/logo.jpg'}
-          alt="avatar"
-          width={550}
-          height={350}
-          style={{
-            objectPosition: '50% 16%',
-            objectFit: 'cover',
-            width: '100%',
-            aspectRatio: '17/11',
-          }}
-        />
-        <SpotifyNowPlaying />
         <ProfileCardInfo />
         <span className="h-1.5 bg-gradient-to-r from-green-300 via-blue-500 to-purple-600"></span>
       </div>

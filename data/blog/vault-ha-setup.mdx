@@ -1,0 +1,272 @@
+---
+title: 'Vault High Availability Mode (HA) Raft Cluster'
+date: '2023-05-01'
+tags: ['hashicorp', 'vault', 'secrets', 'cloud']
+draft: true
+summary: 'Vault supports a multi-server mode for high availability. This mode protects against outages by running multiple Vault servers. The following will explain how this is setup in an example Kubernetes environment. We will also describe how to configure encrypted s3 backups and how to restore them.'
+images: ['/static/images/server.jpg']
+authors: ['default']
+---
+
+import Twemoji from './Twemoji.tsx'
+import UnsplashPhotoInfo from './UnsplashPhotoInfo.tsx'
+
+### Details
+
+To be highly available, one of the Vault server nodes grabs a lock within the data store. The successful server node then becomes the active node; all other nodes become standby nodes. At this point, if the standby nodes receive a request, they will either forward the request or redirect the client depending on the current configuration and state of the cluster. Our setup looks like this:
+
+- vault-0: leader
+- vault-1: follower
+- vault-2: follower
+
+Storage Backend: Raft.
+
+See [The Raft Consensus Algorithm](https://raft.github.io/). Extended Explanation can be found in the [Raft Paper](https://raft.github.io/raft.pdf).
+
+In our setup, we install Vault via the [Vault Helm Chart](https://github.com/hashicorp/vault-helm) and as an ArgoCD Application in this directory.
+
+On startup, we need to connect to the leader and initialize the operator, then unseal with the given unseal keys:
+
+```
+kubectl exec -it vault-0 /bin/sh -n vault
+vault operator init
+vault operator unseal    # 3 times, pass 3/5 unseal keys
+```
+
+Then, connect to the other vault instances, join them to our leader node and unseal by running
+
+```
+kubectl exec -it vault-1 /bin/sh -n vault
+vault operator raft join http://vault-0.vault-internal:8200
+vault operator unseal    # 3 times, pass 3/5 unseal keys
+
+kubectl exec -it vault-0 /bin/sh -n vault
+vault operator raft join http://vault-0.vault-internal:8200
+vault operator unseal    # 3 times, pass 3/5 unseal keys
+
+```
+
+Then, you should be able to login into the leader via root token and verify the followers:
+
+```
+kubectl exec -it vault-0 /bin/sh -n vault
+vault login token=$VAULT_TOKEN
+vault operator raft list-peers
+Node       Address                        State       Voter
+----       -------                        -----       -----
+vault-0    vault-0.vault-internal:8201    leader      true
+vault-1    vault-1.vault-internal:8201    follower    true
+vault-2    vault-2.vault-internal:8201    follower    true
+```
+
+For the backups to work, we first have to create a vault `appRole` `vault-s3-buckets`, s.t. the backup job can request a token from Vault. `[appRole`s use `role_id` and `secret_id` to request such a token](https://developer.hashicorp.com/vault/docs/auth/approle). To get them into the cluster first, we use `[external-secret-operator` with its Hashicorp Vault Provider](https://external-secrets.io/v0.8.1/provider/hashicorp-vault/). It is able to create Kubernetes Secrets from Vault Secrets!
+
+First of all, make sure you have the correct policies in place. In this example, we use policies `admin` that has access to everything and `aws_backups` that was created in the ui.
+
+They have the following policy definition:
+
+- Policy Definitions (click me)
+    
+    ```
+    # aws_backups
+    
+    path "sys/storage/raft/snapshot" {
+      capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+    }
+    
+    path "sys/storage/raft/snapshot-force" {
+      capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+    }
+    ```
+    
+    ```
+    # admin
+    
+    path "kv/*" {
+      capabilities = ["create","read","update","delete","list"]
+    }
+    
+    # Read system health check
+    path "sys/health"
+    {
+      capabilities = ["read", "sudo"]
+    }
+    
+    # Create and manage ACL policies broadly across Vault
+    
+    # List existing policies
+    path "sys/policies/acl"
+    {
+      capabilities = ["list"]
+    }
+    
+    # Create and manage ACL policies
+    path "sys/policies/acl/*"
+    {
+      capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+    }
+    
+    # Enable and manage authentication methods broadly across Vault
+    
+    # Manage auth methods broadly across Vault
+    path "auth/*"
+    {
+      capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+    }
+    
+    # Create, update, and delete auth methods
+    path "sys/auth/*"
+    {
+      capabilities = ["create", "update", "delete", "sudo"]
+    }
+    
+    # List auth methods
+    path "sys/auth"
+    {
+      capabilities = ["read"]
+    }
+    
+    # Enable and manage the key/value secrets engine at `secret/` path
+    
+    # List, create, update, and delete key/value secrets
+    path "secret/*"
+    {
+      capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+    }
+    
+    # Manage secrets engines
+    path "sys/mounts/*"
+    {
+      capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+    }
+    
+    # List existing secrets engines.
+    path "sys/mounts"
+    {
+      capabilities = ["read"]
+    }
+    
+    ```
+    
+
+Again, log into the leader via root token:
+
+```
+kubectl exec -it vault-0 /bin/sh -n vault
+vault login token=$VAULT_TOKEN
+```
+
+Enable `appRole` auth engine, create role, configure its token usage and assign policies to it
+
+```
+vault auth enable approle
+vault auth tune -default-lease-ttl=999999999 -max-lease-ttl=999999999 approle
+vault write auth/approle/role/external-secrets-operator secret_id_ttl=999999999 secret_id_num_uses=999999999
+vault write auth/approle/role/external-secrets-operator token_num_uses=20 token_ttl=20m token_max_ttl=30m token_explicit_max_ttl=30m
+vault write -f auth/approle/role/external-secrets-operator policies=admin
+
+```
+
+Retrieve `role_id` and `secret_id`
+
+```
+vault write -f auth/approle/role/external-secrets-operator/secret-id
+vault read auth/approle/role/external-secrets-operator/role-id
+```
+
+Test retrieving a token
+
+```
+vault write auth/approle/login role_id=$ROLE_ID secret_id=$SECRET_ID
+
+Key                     Value
+---                     -----
+token                   hvs.CAESIBDWsayYTwLOUaLtqqeW2VxNN63XS-NO7FGVm3OH1zUJGh4KHGh2cy5nNmxQOXRkaXFHWE81OWtFMHhGZnA1eWc
+token_accessor          wzWglApDtTImZw2q6Sc1EgbN
+token_duration          20m
+token_renewable         true
+token_policies          ["admin" "default"]
+identity_policies       []
+policies                ["admin" "default"]
+token_meta_role_name    external-secrets-operator
+```
+
+To let `external-secrets-operator` use the credentials, adjust the `roleId` in the appropriate patch file that creates the `ClusterSecretStore`. For the main cluster, it is the overlay `kustomization.yaml` file
+
+```yaml
+# kustomize-cluster-apps/kustomize/overlays/main/kustomization.yaml
+...
+
+  # external-secrets-operator patches
+  - target:
+      group: external-secrets.io
+      version: v1beta1
+      kind: ClusterSecretStore
+      name: vault-secret-store
+    patch: |-
+      - op: replace
+        path: /spec/provider/vault/server
+        value: "https://vault.main.claiv.de" 
+      - op: replace
+        path: /spec/provider/vault/auth/appRole/roleId
+        value: "54e924cd-c97e-db8d-ef09-4b2b1e8f7a59"         # <- here
+```
+
+Also create the Kubernetes Secret containing the `secret_id` (also create namespace `external-secrets` if it does not exist):
+
+```
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: eso-approle
+  namespace: external-secrets
+data:
+  secret-id: <your_base_64_secret_id>
+EOF
+
+```
+
+For backups, we will create another `appRole` called `vault-s3-backups` following the above procedure.
+
+## Backups
+
+Backups will automatically run via Kubernetes CronJob when installing the vault and successfully setting up the `external-secret-operator` like in the above section.
+
+Backup consists of the following steps: - Log into Vault using `vault-s3-backups` approle. - Create a raft snapshot locally - Push the raft snapshot into the Claivolution S3 bucket - Delete the local raft snapshot
+
+- CronJob (click me)
+    
+    ```yaml
+    apiVersion: batch/v1kind: CronJobmetadata:  name: vault-backup-job  namespace: vaultspec:  concurrencyPolicy: Forbid  schedule: "0 0 * * *"  jobTemplate:    spec:      template:        spec:          restartPolicy: OnFailure          # Backup will only work if leader, currently there is no reliable way to directly get the leader, since its a HA setup          # The best solution is to just restart on failure until we are on the leader node - after some retries it will succeed          containers:          - name: vaultbackup            image: ubuntu:latest            imagePullPolicy: Always            env:              - name: CLUSTER_DOMAIN                value: dev              - name: VAULT_ADDR                value: http://vault.vault.svc.cluster.local:8200              - name: VAULT_VERSION                value: "1.13.0"              - name: VAULT_APPROLE_ROLE_ID                valueFrom:                  secretKeyRef:                    name: vault-s3-backups-approle-credentials                    key: role_id              - name: VAULT_APPROLE_SECRET_ID                valueFrom:                  secretKeyRef:                    name: vault-s3-backups-approle-credentials                    key: secret_id              - name: AWS_ACCESS_KEY_ID                valueFrom:                  secretKeyRef:                    name: aws-s3-credentials                    key: AWS_ACCESS_KEY_ID              - name: AWS_SECRET_ACCESS_KEY                valueFrom:                  secretKeyRef:                    name: aws-s3-credentials                    key: AWS_SECRET_ACCESS_KEY            command: ["/bin/sh"]            args:              - -c              - >-                  echo "Install dependencies..." &&                  apt update -y && apt install -y gnupg wget curl zip unzip jq &&                  wget https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip && unzip vault_${VAULT_VERSION}_linux_amd64.zip && mv vault /usr/local/bin &&                  curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && unzip awscliv2.zip && ./aws/install &&                  /usr/local/bin/aws --version &&                  vault version &&                  DATE=$(date +%Y-%m-%d-%H-%M-%S) &&                  echo "Log into vault using approle ${VAULT_APPROLE_ROLE_ID} and retrieve token..." &&                  VAULT_TOKEN=$(vault write auth/approle/login role_id=${VAULT_APPROLE_ROLE_ID} secret_id=${VAULT_APPROLE_SECRET_ID} -format=json | jq -r '.auth.client_token' ) &&                  vault login token=$VAULT_TOKEN &&                  echo "Take snapshot..." &&                  vault operator raft snapshot save /tmp/vaultsnapshot-$DATE.snap &&                  echo "Upload to s3 bucket as 'claiv-backups/cluster-generated/${CLUSTER_DOMAIN}/vault-backups/vaultsnapshot-$DATE.snap ' ..." &&                  /usr/local/bin/aws s3 cp /tmp/vaultsnapshot-$DATE.snap s3://claiv-backups/cluster-generated/${CLUSTER_DOMAIN}/vault-backups/vaultsnapshot-$DATE.snap &&                  rm /tmp/vaultsnapshot-$DATE.snap &&                  echo "Backup completed successfully"
+    ```
+    
+
+## Restore
+
+In case you want to restore the Vault Cluster, we need to differentiate between two cases:
+
+1. Restore the running cluster
+2. Restore into a new cluster
+
+We will refer to them as (1) and (2) respectively.
+
+Steps:
+
+- In case of (1), you will need to boot up a new Vault HA cluster, following the steps from the [Details section](about:blank#details) of the previous chapter. Also, you will need to unseal it first and use its root token for the following steps.
+- Fire up a temporary Pod inside the cluster you want to restore the Vault in `kubectl run tmp-shell --rm -it -n default --image ubuntu -- /bin/bash`.
+- Run the following commands to install dependencies
+    
+    `export VAULT_VERSION=1.13.0 export VAULT_ADDR=http://vault.vault.svc.cluster.local:8200 apt update -y && apt install -y gnupg wget curl zip unzip jq`
+    
+    `wget https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}*linux_amd64.zip && unzip vault*${VAULT_VERSION}_linux_amd64.zip && mv vault /usr/local/bin`
+    
+    `curl “https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip” -o “awscliv2.zip” && unzip awscliv2.zip && ./aws/install /usr/local/bin/aws –version`
+    
+- Export AWS credentials that have access to the bucket where the backups are stored `export AWS_ACCESS_KEY_ID=... && export AWS_SECRET_ACCESS_KEY=...`
+- Download the snapshot you want to restore. Example: `cd ~ && aws s3 cp s3://claiv-backups/cluster-generated/dev/vault-backups/vaultsnapshot-2023-03-18-13-20-49.snap .`
+- Log into vault using the root token `vault login token=$VAULT_TOKEN`
+- Restore the snapshot
+    - `vault operator raft snapshot restore vaultsnapshot-2023-03-18-13-20-49.snap`
+        - In case the commands fails with `Error installing the snapshot: redirect failed: Post "http://10.42.195.155:8200/v1/sys/storage/raft/snapshot": read vaultsnapshot-2023-03-18-13-20-49.snap: file already closed`, then you are not connected to the leader. Rerun the login command and try again - at some point it will work. Currently, there is no good workaround for this case, since the point of HA mode is load balancing the requests and reducing single point of failure. So we just re-authenticate until we are logged into the leader. For more information, see the [open GitHub issue](https://github.com/hashicorp/vault/issues/15258).
+- If case (1) and you successfully restored the cluster, it will be sealed with the original keys. So you will need to unseal it with the original cluster keys, otherwise we will not be able to access the secrets.

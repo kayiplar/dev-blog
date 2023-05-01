@@ -1,7 +1,7 @@
 import { siteMetadata } from '~/data/siteMetadata'
 
 export function AnalyticsLink() {
-  return (
+  /*  return (
     <button
       aria-label="Open analytics"
       type="button"
@@ -19,4 +19,5 @@ export function AnalyticsLink() {
       </svg>
     </button>
   )
+*/
 }

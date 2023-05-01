@@ -1,25 +1,26 @@
 export let siteMetadata = {
-  title: "Leo's blog - Leo's coding journey",
-  author: 'Leo Huynh',
-  fullName: 'Tuan Anh Huynh',
-  headerTitle: "Leo's blog - Leo's coding journey",
-  footerTitle: "Leo's blog - Leo's coding journey",
+  title: 'Salih Kayiplar - Cloud and DevOps Journey',
+  author: 'Salih Kayiplar',
+  fullName: 'Salih Kayiplar',
+  headerTitle: 'Salih Kayiplar - Cloud and DevOps Journey',
+  footerTitle: 'Salih Kayiplar - Cloud and DevOps Journey',
   description:
-    "Leo's coding journey - work and life stories through the keyboard of an open-minded Software Engineer",
+    'Salih Kayiplar - Cloud and DevOps Journey - Dedidcated to Cloud and DevOps Engineer trying to share my knowledge and experience with the world.',
   language: 'en-us',
-  siteUrl: 'https://www.leohuynh.dev',
-  siteRepo: 'https://github.com/hta218/leohuynh.dev',
+  siteUrl: 'https://salih-kayiplar.dev',
+  siteRepo: 'https://github.com/kayiplar/dev-blog',
   siteLogo: '/static/images/logo.jpg',
   image: '/static/images/logo.jpg',
   socialBanner: '/static/images/logo.jpg',
-  email: 'leohuynh@pm.me',
-  github: 'https://github.com/hta218',
-  twitter: 'https://twitter.com/hta218_',
-  facebook: 'https://facebook.com/hta218',
-  youtube: 'https://www.youtube.com/@hta218_',
-  linkedin: 'https://www.linkedin.com/in/hta218/',
+  email: 'salih.kayiplar@gmail.com',
+  github: 'https://github.com/',
+  twitter: 'https://twitter.com/',
+  facebook: 'https://facebook.com/',
+  youtube: 'https://www.youtube.com/',
+  linkedin: 'https://www.linkedin.com/',
   locale: 'en-US',
-  analyticsURL: 'https://analytics.leohuynh.dev/share/jkwRskv0/leohuynh.dev',
+  //analyticsURL: 'https://analytics.leohuynh.dev/share/jkwRskv0/leohuynh.dev',
+  analyticsURL: '',
   analytics: {
     plausibleDataDomain: '', // e.g. tailwind-nextjs-starter-blog.vercel.app
     simpleAnalytics: false, // true or false
@@ -27,9 +28,9 @@ export let siteMetadata = {
     googleAnalyticsId: '', // e.g. UA-000000-2 or G-XXXXXXX
   },
   socialAccounts: {
-    github: 'hta218',
-    twitter: 'hta218_',
-    linkedin: 'hta218',
+    github: 'kayiplar',
+    twitter: 'kayiplar',
+    linkedin: 'kayiplar',
   },
 }
 

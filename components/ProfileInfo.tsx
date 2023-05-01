@@ -4,8 +4,8 @@ import { siteMetadata } from '~/data/siteMetadata'
 export function ProfileCardInfo() {
   return (
     <div className="hidden py-4 xl:block xl:px-6">
-      <h3 className="text-xl font-semibold text-gray-800 dark:text-white">Tuan Anh (Leo) Huynh</h3>
-      <h5 className="py-2 text-gray-700 dark:text-gray-400">Learner | Builder</h5>
+      <h3 className="text-xl font-semibold text-gray-800 dark:text-white">Salih Kayiplar</h3>
+      <h5 className="py-2 text-gray-700 dark:text-gray-400">Cloud & DevOps Engineer</h5>
       <div className="mb-2 mt-4 space-y-4">
         <div className="flex items-center text-gray-700 dark:text-gray-200">
           <svg
@@ -23,17 +23,7 @@ export function ProfileCardInfo() {
             />
           </svg>
 
-          <p className="px-2">
-            CTO / Co.Founder @{' '}
-            <a
-              target="_blank"
-              href="https://weaverse.io"
-              rel="noreferrer"
-              className="hover:underline"
-            >
-              Weaverse
-            </a>
-          </p>
+          <p className="px-2">Freelancer</p>
         </div>
         <div className="flex items-center text-gray-700 dark:text-gray-200">
           <svg
@@ -58,9 +48,9 @@ export function ProfileCardInfo() {
           </svg>
 
           <p className="px-2">
-            [::1]:443 - Ha Noi,
+            Bielefeld,
             <span className="absolute ml-1 inline-flex pt-px">
-              <Twemoji emoji="flag-vietnam" />
+              <Twemoji emoji="flag-germany" />
             </span>
           </p>
         </div>
