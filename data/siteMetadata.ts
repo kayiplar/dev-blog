@@ -13,7 +13,7 @@ export let siteMetadata = {
   image: '/static/images/logo.jpg',
   socialBanner: '/static/images/logo.jpg',
   email: 'salih.kayiplar@gmail.com',
-  github: 'https://github.com/',
+  github: 'https://github.com/kayiplar',
   twitter: 'https://twitter.com/',
   facebook: 'https://facebook.com/',
   youtube: 'https://www.youtube.com/',
