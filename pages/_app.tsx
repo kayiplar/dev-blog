@@ -3,7 +3,8 @@ import 'css/twemoji.css'
 
 import { ThemeProvider } from 'next-themes'
 import Head from 'next/head'
-import { Analytics } from '~/components/analytics'
+//import { Analytics } from '~/components/analytics'
+import { Analytics } from '@vercel/analytics/react'
 import { LayoutWrapper } from '~/components/LayoutWrapper'
 
 export default function App({ Component, pageProps }) {
