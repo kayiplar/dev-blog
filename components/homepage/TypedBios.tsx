@@ -25,13 +25,15 @@ export function TypedBios() {
           I have a Bachelor's Degree in Computer Science. I studied at University Paderborn, Germany
           and Unversity of California, Riverside !
         </li>
+        <li>I studied at University Paderborn, Germany and Unversity of California, Riverside!</li>
         <li>I'm a learner!</li>
         <li>
-          I am born & raised <b className="font-medium">Bielefeld, Germany</b>. I still live here!
+          I am born & raised in <b className="font-medium">Bielefeld, Germany</b>. I still live
+          here!
         </li>
         <li>Python enthusiast!</li>
         <li>I am happily married.</li>
-        <li>I love animals! Me and wife have cats, horses and rabbits.</li>
+        <li>I love animals! Me and my wife have cats, horses and rabbits.</li>
         <li>I love watching MMA.</li>
         <li>
           I love playing video games <Twemoji emoji="video-game" /> !
