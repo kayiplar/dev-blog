@@ -30,7 +30,7 @@ export default function Home({ posts }: { posts: BlogFrontMatter[] }) {
               <ShortDescription />
               <BlogLinks />
               <p className="my-8 flex">
-                <span className="mr-2">Happy reading!</span>
+                <span className="mr-2">I will start writing blogs soon! Loading ...</span>
               </p>
             </div>
           </div>
