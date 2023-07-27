@@ -1,0 +1,396 @@
+---
+title: 'Effortlessly Manage Your GitLab Setups via GitLab Operator'
+date: '2023-05-01'
+tags: ['gitlab', 'kubernetes', 'helm']
+draft: false
+summary: 'Dive into the world of GitLab - a web-based Git repository manager that provides all the bells and whistles needed for project management, from continuous integration and deployment (CI/CD) pipelines to wiki and issue-tracking. Learn how to leverage the GitLab Operator to facilitate collaborative work, LDAP integration, and group-level permissions with ease, alongside other features.'
+images: ['/static/images/server.jpg']
+authors: ['default']
+---
+
+import Twemoji from './Twemoji.tsx'
+import UnsplashPhotoInfo from './UnsplashPhotoInfo.tsx'
+
+## Introduction
+
+Welcome to the universe of GitLab, the ultimate web-based Git repository manager armed with a plethora of project management tools, including but not limited to continuous integration and deployment (CI/CD) pipeline features, wiki, and issue-tracking. Not only is GitLab a self-hosted Git repository service that allows multiple developers to work collaboratively on a project, but it also offers enterprise-level features like LDAP integration, group-level permissions, and audit trails.
+
+In this guide, we will walk you through setting up GitLab on Kubernetes in a Highly-Available (HA) mode using the GitLab Operator.
+### Prerequisites
+
+
+- Existing Kubernetes cluster
+- Ingress controller (Nginx or Traefik)
+
+
+### Setting Up
+
+#### Getting Started with GitLab Operator
+
+The GitLab Operator is a Kubernetes operator designed to manage GitLab instances. It essentially automates the deployment and management of GitLab instances in a Kubernetes cluster. It includes features like automatic upgrades, database backups, and monitoring. With the GitLab Operator, managing and scaling GitLab instances in a highly-available manner becomes a breeze. Additionally, it integrates effortlessly with other Kubernetes tools such as Helm and Kustomize. Learn more about operators and the operator pattern [here](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/).
+According to its [documentation](https://gitlab.com/gitlab-org/cloud-native/gitlab-operator#gitlab-operator), the operator aims to:
+
+- ease installation and configuration of GitLab instances
+- offer seamless upgrades from version to version
+- ease backup and restore of GitLab and its components
+- aggregate and visualize metrics using Prometheus and Grafana
+- setup auto-scaling
+
+
+To install via Helm:
+
+```yaml
+helm repo add gitlab-operator https://gitlab.com/api/v4/projects/18899486/packages/helm/stable
+helm repo update
+helm install gitlab-operator gitlab-operator/gitlab-operator
+```
+
+For ArgoCD users, here is the `Application` manifest:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab-operator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    chart: gitlab-operator
+    repoURL: https://gitlab.com/api/v4/projects/18899486/packages/helm/stable
+    targetRevision: 0.20.5
+    helm:
+      releaseName: gitlab-operator
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: gitlab-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - PruneLast=true
+    - FailOnSharedResource=false
+```
+Make sure to set the `targetRevision` to the latest version of the GitLab Operator.
+Also, confirm which versions the operator supports. Select the version you installed via the tag in the [official repository]((https://gitlab.com/gitlab-org/cloud-native/gitlab-operator)) and check the `CHART_VERSIONS` file.
+
+Once we are finished, we can apply the custom resource `GitLab` to deploy GitLab using the official Helm Chart.
+
+#### GitLab App
+
+```yaml
+apiVersion: apps.gitlab.com/v1beta1
+kind: GitLab
+metadata:
+  name: gitlab
+  namespace: gitlab-system
+spec:
+  chart:
+    version: "6.11.8" # replace with most recent version that the operator supports
+    values:
+      global:
+        edition: ce
+        appConfig:
+          backups:
+            bucket: gitlab-backups-01
+            tmpBucket: gitlab-backups-tmp-01
+          # example OIDC Keycloak configuration
+          omniauth:
+            enabled: true
+            allowSingleSignOn: ['openid_connect']
+            autoLinkLdapUser: false
+            blockAutoCreatedUsers: true
+            providers:
+              - secret: gitlab-keycloak-sso-config
+                key: config        
+        hpa:
+          apiVersion: "autoscaling/v2" # select apiversion that your cluster supports
+        batch:
+          cronJob:
+            apiVersion: "batch/v1" # select apiversion that your cluster supports
+        hosts:
+          domain: example.com
+        ingress:
+          enabled: false # enable if you have an nginx ingress controller
+        minio:
+          persistence:
+            enabled: true
+            size: 200Gi
+      # in this example we assume that cert-manager is already installed
+      certmanager:
+        install: false
+      certmanager-issuer:
+        enabled: false
+      # we use traefik as our ingress controller
+      nginx-ingress:
+        enabled: false
+      prometheus:
+        install: false
+      gitlab-runner:
+        install: true
+      # if needed, specify postgresql version
+      #postgresql:
+      #  image:
+      #    tag: 13.8.0
+      gitlab:
+        gitaly:
+          persistence:
+            enabled: true
+            size: 200Gi
+        toolbox:
+          backups:
+            cron:
+              enabled: true
+              schedule: "0 0 * * *"
+            objectStorage:
+              backend: s3
+              config:
+                secret: toolbox-s3cfg
+                key: config
+          persistence:
+            enabled: false
+```
+
+The `kind: GitLab` above is a custom resource definition (CRD) that is used to apply the GitLab Helm chart. It allows for customization of the GitLab deployment by specifying different values in the `spec.chart.values` section, as well as the version in `spec.chart.version`.
+
+Below are some of the key sections of the `values.yaml` file that are used to configure GitLab:
+
+- `global`: Global settings that apply to the entire GitLab deployment, including the edition (Community or Enterprise), backup configuration, and LDAP integration.
+- `hpa`: Horizontal Pod Autoscaling (HPA) settings for GitLab pods.
+- `batch`: Configuration for GitLab's batch processing system, including CronJobs.
+- `hosts`: The domain name used for GitLab.
+- `ingress`: Configures GitLab's ingress controller (disabled by default in this example).
+- `minio`: Configuration for the Minio object storage service.
+- `certmanager`: Configuration for the CertManager certificate management service.
+- `certmanager-issuer`: Configuration for the CertManager issuer.
+- `nginx-ingress`: Configuration for the Nginx ingress controller.
+- `prometheus`: Configuration for the Prometheus monitoring system.
+- `gitlab-runner`: Configuration for the GitLab Runner.
+- `postgresql`: Configuration for the PostgreSQL database.
+- `gitaly`: Configuration for the Gitaly storage service used by GitLab.
+- `toolbox`: Configuration for the GitLab Toolbox, which includes backup and restore functionality.
+
+For the above configuration, you see that there are some prerequisites. 
+
+1. S3 Bucket for backups, in this case `gitlab-backups-01` and `gitlab-backups-tmp-01` . The second bucket is used temporarily for the restore process.
+2. Secrets for bucket access and, if needed, for Keycloak integration. We will not cover how to create a KeyCloak client here.
+    - toolbox-s3cfg: s3cfg for s3 bucket access
+    - gitlab-keycloak-sso-config
+
+You can use the external-secrets operator to apply the secrets in a secure way from a Azure KeyVault, HashiCorp Vault, AWS KMS, … 
+
+Examples: 
+
+- gitlab-keycloak-sso-config
+    
+    ```
+    name: openid_connect
+    label: Keycloak
+    args:
+      name: openid_connect
+      scope: ["openid","profile","email"]
+      response_type: code
+      issuer: https://<keycloak_domain>/auth/realms/<keycloak_realm>
+      client_auth_method: "query"
+      discovery: true
+      client_options:
+        identifier: <client_id>
+        secret: <client_secret>
+        redirect_uri: "<gitlab_domain>/users/auth/openid_connect/callback"
+    ```
+    
+    In a secret, it should look like this
+    
+    ```yaml
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: gitlab-keycloak-sso-config
+      namespace: gitlab-system
+    data:
+      config: <base64_encoded_config> # can be generated with 'cat gitlab-keycloak-sso-config.yaml | base64'
+    type: Opaque
+    ```
+    
+- toolbox-s3cfg
+    
+    ```yaml
+    [default]
+    access_key = <access_key_id>
+    bucket_location = eu-central-1
+    check_ssl_certificate = True
+    check_ssl_hostname = True
+    cloudfront_host = cloudfront.amazonaws.com
+    ...
+    host_base = s3.amazonaws.com
+    host_bucket = %(bucket)s.s3.amazonaws.com
+    ...
+    secret_key = <secret_key>
+    ...
+    website_endpoint = http://%(bucket)s.s3-website-%(location)s.amazonaws.com/
+    website_index = index.html
+    ```
+    
+    There are tons of configurations in the s3cfg, for overview purposes we leave them out. Again, this should be base64 encoded into the Kubernetes secret.
+    
+
+After applying, you should see that the operator with Pod prefix `gitlab-controller-manager` is reconciling the changes and registers the new GitLab instance. Logs should look something like this: 
+
+```yaml
++ kubectl logs -f gitlab-controller-manager-fffcf65d-v6hg9 -n gitlab-system
+...
+2023-05-09T13:04:18Z    INFO    controllers.GitLab      reconciling Webservice Deployments      {"gitlab": "gitlab-system/gitlab", "pause": false}
+2023-05-09T13:04:18Z    INFO    controllers.GitLab      reconciling Sidekiq Deployments {"gitlab": "gitlab-system/gitlab", "pause": false}
+2023-05-09T13:04:33Z    INFO    controllers.GitLab      Reconciling GitLab      {"gitlab": "gitlab-system/gitlab"}
+2023-05-09T13:04:33Z    DEBUG   controllers.GitLab      version information     {"gitlab": "gitlab-system/gitlab", "upgrade": false, "current version": "6.11.2", "desired version": "6.11.2"}
+2023-05-09T13:04:33Z    INFO    controllers.GitLab      self-signed certificates job skipped, not needed per configuration      {"gitlab": "gitlab-system/gitlab"}
+2023-05-09T13:04:33Z    DEBUG   controllers.GitLab      createOrUpdate result   {"gitlab": "gitlab-system/gitlab", "type": "*v1.Issuer", "reference": "gitlab-system/gitlab-issuer", "result": "updated"}
+2023-05-09T13:04:33Z    INFO    controllers.GitLab      running all migrations  {"gitlab": "gitlab-system/gitlab"}
+2023-05-09T13:04:33Z    INFO    controllers.GitLab      reconciling Webservice Deployments      {"gitlab": "gitlab-system/gitlab", "pause": false}
+2023-05-09T13:04:33Z    INFO    controllers.GitLab      reconciling Sidekiq Deployments {"gitlab": "gitlab-system/gitlab", "pause": false}
+```
+
+When the operator is finished, you can check the status
+
+```yaml
++ kubectl get gitlab
+
+NAME     STATUS    VERSION
+gitlab   Running   6.11.8
+```
+
+and its components
+
+```yaml
++ kubectl get pods -n gitlab-system
+
+NAME                                          READY   STATUS      RESTARTS   AGE
+gitlab-controller-manager-55554cb7ff-88xgc    2/2     Running     0          20h
+gitlab-gitaly-0                               1/1     Running     0          20h
+gitlab-gitlab-exporter-5b655c95dc-kw5nv       1/1     Running     0          20h
+gitlab-gitlab-shell-56b8c86b4d-78bqz          1/1     Running     0          20h
+gitlab-gitlab-shell-56b8c86b4d-7cxxx          1/1     Running     0          20h
+gitlab-kas-55bbd657c7-gdwzs                   1/1     Running     0          20h
+gitlab-kas-55bbd657c7-kfjgb                   1/1     Running     0          20h
+gitlab-migrations-1-62e-8-jtz57               0/1     Completed   0          20h
+gitlab-migrations-1-62e-8-pre-5ptcp           0/1     Completed   0          20h
+gitlab-minio-8647c8f96c-478pj                 1/1     Running     0          10d
+gitlab-postgresql-0                           2/2     Running     0          20h
+gitlab-redis-master-0                         2/2     Running     0          10d
+gitlab-registry-757856c84d-64kmr              1/1     Running     0          20h
+gitlab-registry-757856c84d-shm96              1/1     Running     0          20h
+gitlab-shared-secrets-1-9qg-8zmfb             0/1     Completed   0          10d
+gitlab-shared-secrets-1-eiy-dzfwl             0/1     Completed   0          10d
+gitlab-shared-secrets-1-knv-tlfqj             0/1     Completed   0          9d
+gitlab-shared-secrets-1-kw6-p6qsh             0/1     Completed   0          20h
+gitlab-shared-secrets-1-nzi-vmw8w             0/1     Completed   0          20h
+gitlab-sidekiq-all-in-1-v2-5d96bb9fd7-5dshs   1/1     Running     0          20h
+gitlab-toolbox-777c586986-2wfxz               1/1     Running     0          20h
+gitlab-toolbox-backup-28103040-5jf6s          0/1     Completed   0          2d10h
+gitlab-toolbox-backup-28104480-rggmn          0/1     Completed   0          34h
+gitlab-toolbox-backup-28105920-wzh9v          0/1     Completed   0          10h
+gitlab-webservice-default-748675cd87-wcc2n    2/2     Running     0          20h
+gitlab-webservice-default-748675cd87-zn5vg    2/2     Running     0          20h
+```
+
+#### Ingress 
+If you have configured an nginx ingress your routes should be available. 
+
+If you installed the Traefik ingress controller, you can use the following `IngressRoute` configuration: 
+```yaml
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gitlab-default
+  namespace: gitlab-system
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host( `gitlab.example.com` )
+      kind: Rule
+      services:
+        - name: gitlab-webservice-default
+          namespace: gitlab-system
+          port: 8181 
+  tls:
+    secretName: my-cert
+    domains:
+      - main: gitlab.example.com
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gitlab-registry
+  namespace: gitlab-system
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host( `registry.example.com` )
+      kind: Rule
+      services:
+        - name: gitlab-registry
+          namespace: gitlab-system
+          port: 5000
+  tls:
+    secretName: my-cert
+    domains:
+      - main: registry.example.com
+
+```
+
+You should at least route to the above services. Of course, you could also expose other componenets like minio.
+
+### Maintenance: Safeguarding Your Data
+
+#### Security First: Setting Up Your Kubernetes and RBAC
+Before delving into the maintenance aspects, it's pivotal to establish the right foundation. Ensuring maximum security for your system begins with setting up your Kubernetes platform and Role-Based Access Control (RBAC). By carefully crafting user roles and permissions, you'll be able to maintain strict control over who can access and manipulate your data. This setup is not just recommended, it is a fundamental part of a robust and secure system.
+
+#### Backup & Restore: Safeguarding Your Data
+
+With the above automatic backups through the bucket access and schedule you set up, your data is consistently safe and sound.
+
+In the event you need to restore your data, our comprehensive [official documentation](https://docs.gitlab.com/charts/backup-restore/restore.html) provides a clear and concise roadmap to guide you through the process.
+
+#### Version Upgrades: Stay Current and Secure
+Maintaining the latest versions of GitLab operator, GitLab, and PostgreSQL is essential for optimal performance and security. Please utilize the following resources to assist with your upgrade process
+
+- For GitLab operator and GitLab: [GitLab Upgrades](https://gitlab.com/gitlab-org/cloud-native/gitlab-operator/-/blob/master/doc/gitlab_upgrades.md)
+- For Postgresql: [Database Upgrade](https://docs.gitlab.com/charts/installation/database_upgrade.html)
+
+#### Increase PVC size: Expand as Needed
+
+If you find yourself needing more storage, Kubernetes allows for the dynamic increase of your `PersistentVolumeClaim` (PVC) size via the `kubectl patch` command. This is applicable for Kubernetes v1.11 and later, with dynamic provisioning and a storage class supporting volume expansion.
+
+```
+kubectl patch pvc my-pvc -p '{"spec":{"resources":{"requests":{"storage":"10Gi"}}}}'
+```
+
+#### Garbage collector: Maintain Efficient Storage
+
+In order to maximize your available storage space, GitLab features a garbage collector tool that manages images in the registry that are no longer reachable via tag. Access this by entering the toolbox with the following command:
+
+```
+kubectl exec -it gitlab-toolbox-665fb9957d-bsdxg /bin/bash -n gitlab-system
+```
+And initiate the garbage collection with:
+
+```
+gitlab-ctl registry-garbage-collect -m
+```
+
+#### Reset root password: Secure and Simple
+
+If a root password reset becomes necessary, you can perform this task in a secure and straightforward manner. Access the toolbox as described above and execute the following command:
+
+```
+gitlab-rake "gitlab:password:reset[root]"
+```
+
+Input your new password and continue with your secure access to the system (and yes, you can reset other users' passwords in a similar fashion).
